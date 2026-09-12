@@ -6,6 +6,13 @@
 <style>*{box-sizing:border-box}html{color-scheme:light dark}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>The Reshuffle Room</title>
 <meta name="description" content="A single-deck blackjack table that reshuffles every hand, with a coach that tells you exactly when to hit or stand and why.">
+<meta name="theme-color" content="#12442f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Reshuffle Room">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;0,800;1,500&family=Karla:wght@400;500;600;700&display=swap">
@@ -225,6 +232,12 @@
     background:#fff;transition:transform .15s}
   .toggle input:checked::after{transform:translateX(16px)}
   .toggle input:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
+  .seg{display:inline-flex; background:rgba(8,32,24,.5); border:1px solid var(--line); border-radius:9px; padding:3px; gap:2px}
+  .seg-btn{font-family:"Karla"; font-size:12px; font-weight:700; letter-spacing:.02em; color:var(--text-dim);
+    background:none; border:none; padding:5px 10px; border-radius:6px; cursor:pointer; transition:background .12s, color .12s}
+  .seg-btn:hover{color:var(--text)}
+  .seg-btn.active{background:linear-gradient(180deg,var(--gold-hi),var(--gold)); color:var(--felt-edge)}
+  .seg-btn:focus-visible{outline:2px solid var(--gold-hi); outline-offset:2px}
 
   .coach .body{padding:16px}
   .rec-card{border-radius:12px; padding:16px; text-align:center; margin-bottom:14px;
@@ -333,12 +346,16 @@
     <aside class="coach" id="coach" aria-label="Strategy coach">
       <div class="head">
         <div class="t"><span class="icon">♠</span><h2>The Coach</h2></div>
-        <label class="toggle">On <input type="checkbox" id="coach-toggle" checked></label>
+        <div class="seg" id="coach-mode" role="group" aria-label="When should the coach advise?">
+          <button type="button" class="seg-btn active" data-mode="live" title="Shows the best move before you play">Before</button>
+          <button type="button" class="seg-btn" data-mode="after" title="Stays quiet, then grades you after you move">After</button>
+          <button type="button" class="seg-btn" data-mode="off" title="No help at all">Off</button>
+        </div>
       </div>
       <div class="body" id="coach-body">
         <div id="coach-rec">
-          <div class="idle"><span class="big">Basic strategy, live.</span>
-            Deal a hand and I'll tell you the mathematically correct move against the dealer's up-card — and exactly why it's right.</div>
+          <div class="idle"><span class="big">Your blackjack coach.</span>
+            Deal a hand and I'll help you decide whether to take a card or stop — and explain why, in plain English.</div>
         </div>
         <div class="feedback" id="feedback"></div>
       </div>
@@ -348,7 +365,7 @@
   <div class="foot">
     <div><h3>Why reshuffle every hand?</h3><p>Card counters track the ratio of high to low cards left in the shoe. Shuffling a full deck after every hand keeps that ratio pinned at neutral — the count is always zero, so there's no edge to grind. Play the math, not the memory.</p></div>
     <div><h3>The rules on this table</h3><p>Single deck, dealer stands on all 17s, blackjack pays <code>3:2</code>. Double on any first two cards, double after split, split up to four hands. No insurance — it's a sucker bet, so we skip it.</p></div>
-    <div><h3>How the coach thinks</h3><p>Every call comes from basic strategy: the move with the best expected value for your total against the dealer's up-card. It never peeks at the hole card — same information you have.</p></div>
+    <div><h3>How the coach helps</h3><p>It uses <em>basic strategy</em> — the best move for your cards against the dealer's shown card, worked out by running the odds. Set it to <b>Before</b> to see the move up front, <b>After</b> to test yourself and get graded, or <b>Off</b>. It never peeks at the dealer's face-down card.</p></div>
   </div>
 
   <p class="disc">Play money only. This is a strategy trainer, not a casino — and the house still keeps a small edge even with perfect play.</p>
@@ -392,69 +409,67 @@
     const v=handValue(cards);
     const up=dealerUp==="A"?11:cardVal(dealerUp);
     const dtxt = dealerUp==="A"?"an Ace":"a "+dealerUp;
-    const weak = up>=2 && up<=6;   // dealer bust cards
-    const strong = up>=7;          // dealer's pat/strong cards
-    const term=(t,tip)=>`<span class="term" title="${tip}">${t}</span>`;
-    const stiff=term("stiff hand","A hard total of 12–16: too high to hit safely, too low to sit on comfortably.");
-    const bustcard=term("bust card","A dealer up-card of 2 through 6 — they're most likely to break.");
-    const soft17=term("soft 17","A 17 that includes an Ace counted as 11 (A-6). It can't bust on one more card.");
+    const weak = up>=2 && up<=6;   // dealer showing a card they often go over 21 with
+    // "Over 21" = you lose instantly, so we talk about going over 21 instead of "busting".
+    // A hand with an ace that can still count as 11 is "safe": one more card can never put you over 21.
+    const safeNote = `Because you have an ace, one more card can't put you over 21.`;
 
-    // fallback when the ideal is Double but you can't
-    const dbl=(fallback,why)=> canDouble?{act:"double",why} : {act:fallback, why:why+` <b>You can only double on your first two cards, so ${fallback==="stand"?"stand":"just hit"} instead.</b>`};
+    // fallback when the ideal move is Double but you can't (only allowed on your first two cards)
+    const dbl=(fallback,why)=> canDouble?{act:"double",why} : {act:fallback, why:why+` <b>You can only double on your first two cards, so ${fallback==="stand"?"just stand":"just take a card"} this time.</b>`};
 
     // ---------- Pairs ----------
     if(canSplit){
       const p=cardVal(cards[0].rank); // pair value (A=11)
-      if(p===11) return {act:"split", why:`<b>Always split Aces.</b> One card lands on each, and any ten gives you 21. Sitting on a soft 12 wastes the best card in the deck.`};
-      if(p===10) return {act:"stand", why:`You're holding <b>20</b> — a monster. Never split tens chasing more; ${term("stand","Take no more cards.")} and bank it.`};
+      if(p===11) return {act:"split", why:`<b>Always split aces.</b> You get a fresh card on each one, and since an ace is worth 11, any 10-value card makes 21. Kept together they'd only be 12, which is weak.`};
+      if(p===10) return {act:"stand", why:`You have <b>20</b> — a great hand that's very hard to beat. Don't break it up. Stand (take no more cards).`};
       if(p===9){
-        if(up===7||up>=10) return {act:"stand", why:`Your 18 beats ${dtxt}'s likely 17${up>=10?", and against a ten you'd rather not risk breaking a good hand":""}. Stand pat.`};
-        return {act:"split", why:`Split the nines. Two hands starting with 9 press your edge against ${dtxt}, ${weak?"a "+bustcard:"a card you can outrun"}.`};
+        if(up===7||up>=10) return {act:"stand", why:`Your 18 is a solid hand. Against the dealer's ${dtxt} it's safer to keep it than to split into something worse. Stand.`};
+        return {act:"split", why:`Split your nines. Each new hand starts with a 9, which is strong, and the dealer's ${dtxt} is beatable.`};
       }
-      if(p===8) return {act:"split", why:`<b>Always split 8s.</b> Sixteen is the worst total in blackjack — two eights turn one dead hand into two live ones.`};
-      if(p===7){ if(up<=7) return {act:"split", why:`Split 7s against ${dtxt}. Each 7 has a fair shot, and ${dtxt} is beatable.`}; }
-      if(p===6){ if(weak) return {act:"split", why:`Split 6s against ${bustcard} — let the dealer take the risk while you build two hands.`}; }
-      if(p===4){ if(up===5||up===6) return {act:"split", why:`Only split 4s against a 5 or 6 (the dealer's two weakest cards). Otherwise 8 is fine to hit.`}; }
-      if(p===3||p===2){ if(up<=7) return {act:"split", why:`Split low pairs against ${dtxt} — you're turning a weak total into two hands the dealer still has to beat.`}; }
-      // p===5 falls through to hard-total logic (treat as hard 10)
+      if(p===8) return {act:"split", why:`<b>Always split eights.</b> Together they make 16 — the worst hand in the game. Splitting gives you two fresh chances instead of one bad hand.`};
+      if(p===7){ if(up<=7) return {act:"split", why:`Split your sevens. Each new hand starts with a 7, and the dealer's ${dtxt} isn't strong enough to worry about.`}; }
+      if(p===6){ if(weak) return {act:"split", why:`Split your sixes. The dealer is showing a weak card (2 through 6) and will often go over 21, so put two hands out against them.`}; }
+      if(p===4){ if(up===5||up===6) return {act:"split", why:`Split fours only against a 5 or 6 — the dealer's weakest cards. Any other time, just take a card (a total of 8 is fine to hit).`}; }
+      if(p===3||p===2){ if(up<=7) return {act:"split", why:`Split them. On their own they make a weak total, but two hands each starting fresh give the dealer more to beat.`}; }
+      // a pair of 5s falls through and is treated like a total of 10
     }
 
-    // ---------- Soft totals ----------
+    // ---------- Hands with an ace counted as 11 ----------
     if(v.soft){
       const t=v.total;
-      if(t>=19) return {act:"stand", why:`Soft ${t} is a strong, ${term("un-bustable","With the Ace as 11 you can't go over 21 on one hit — but there's little to gain.")} total. Stand.`};
+      if(t>=19) return {act:"stand", why:`You have ${t} with an ace — a strong hand. Stand (take no more cards) and keep it.`};
       if(t===18){ // A,7
-        if(up===2||up===7||up===8) return {act:"stand", why:`Soft 18 is good enough against ${dtxt}. Stand — hitting risks turning 18 into a worse hard total.`};
-        if(weak) return dbl("stand", `Soft 18 versus ${bustcard} — press your bet. You can't bust, and the dealer probably will.`);
-        return {act:"hit", why:`Soft 18 is <b>not</b> enough against ${dtxt}. Since the Ace protects you from busting, hit to improve.`};
+        if(up===2||up===7||up===8) return {act:"stand", why:`Your 18 is good enough against the dealer's ${dtxt}. Taking another card would probably make it worse. Stand.`};
+        if(weak) return dbl("stand", `You have 18 with an ace, and the dealer's weak card (2 through 6) will often go over 21. Double your bet. ${safeNote}`);
+        return {act:"hit", why:`18 isn't quite enough against the dealer's ${dtxt}. Take a card to try to improve — ${safeNote.charAt(0).toLowerCase()+safeNote.slice(1)}`};
       }
-      // soft 13–17
+      // ace + 2 through 6
       let need;
       if(t===17) need=weak && up>=3;      // A6: 3-6
       else if(t>=15) need=up>=4 && up<=6; // A4,A5: 4-6
       else need=up===5||up===6;           // A2,A3: 5-6
-      if(need) return dbl("hit", `Soft ${t} against ${bustcard}: double down. You can't bust on the next card, and the dealer is on the ropes.`);
-      return {act:"hit", why:`Soft ${t} is too low to stand and the dealer isn't weak enough to double into. Hit — the Ace keeps you safe.`};
+      if(need) return dbl("hit", `You have ${t} with an ace, and the dealer's showing a weak card (2 through 6). Double your bet — the dealer is likely to lose, and ${safeNote.charAt(0).toLowerCase()+safeNote.slice(1)}`);
+      return {act:"hit", why:`Take a card. Your total is low and the dealer isn't weak enough to bet extra. ${safeNote}`};
     }
 
-    // ---------- Hard totals ----------
+    // ---------- Regular hands (no ace, or ace counted as 1) ----------
     const t=v.total;
-    if(t>=17) return {act:"stand", why:`Hard ${t} is a pat hand. ${term("Stand","Take no more cards.")} — hitting almost always busts you.`};
+    if(t>=17) return {act:"stand", why:`You have ${t}. That's strong enough — taking another card would very likely put you over 21. Stand (take no more cards).`};
     if(t>=13){ // 13-16
-      if(weak) return {act:"stand", why:`You've got a ${stiff} (${t}) and the dealer shows ${dtxt} — a ${bustcard}. Don't risk busting; make ${dtxt} draw and break instead.`};
-      return {act:"hit", why:`A ${stiff} (${t}) against ${dtxt} is a loser if you stand — the dealer likely already has you beat. Hit and try to improve.`};
+      if(weak) return {act:"stand", why:`You have ${t}, which goes over 21 easily if you take a card. But the dealer's showing a weak card (2 through 6) and will often go over 21 first. Stand and let them take the risk.`};
+      return {act:"hit", why:`You have ${t}. If you stand, the dealer's ${dtxt} probably already beats you — so take a card and try to improve, even though it's a bit risky.`};
     }
     if(t===12){
-      if(up>=4&&up<=6) return {act:"stand", why:`Twelve is a ${stiff}. Against ${dtxt} the dealer busts often enough that standing wins more than hitting into a likely bust card of your own.`};
-      return {act:"hit", why:`Twelve against ${dtxt}: hit. The dealer's card is too strong to sit on 12, and only a 10 busts you.`};
+      if(up>=4&&up<=6) return {act:"stand", why:`You have 12. The dealer's showing ${dtxt} and will often go over 21, so stand and let them take the risk. Only a 10-value card would put you over anyway.`};
+      return {act:"hit", why:`You have 12 and the dealer's ${dtxt} is too strong to sit on. Take a card — only a 10-value card would put you over 21.`};
     }
-    if(t===11) return up===11 ? {act:"hit", why:`Eleven against an Ace: just hit. Doubling into a possible dealer blackjack isn't worth it here.`}
-                              : dbl("hit", `Eleven is the best doubling total there is — no card busts you and a ten makes 21. Double against ${dtxt}.`);
-    if(t===10) return (up>=2&&up<=9) ? dbl("hit", `Ten against ${dtxt}: double. You're a favorite to draw a strong hand while the dealer is beatable.`)
-                                     : {act:"hit", why:`Ten against ${dtxt} is strong but not worth doubling into a ten or Ace. Just hit.`};
-    if(t===9) return weak&&up>=3 ? dbl("hit", `Nine against ${bustcard} (3–6): double down and punish a weak dealer.`)
-                                 : {act:"hit", why:`Nine against ${dtxt}: hit. Not enough of an edge to double here.`};
-    return {act:"hit", why:`With ${t} you can't bust and you're well behind — always hit low totals like this.`};
+    if(t===11) return up===11 ? {act:"hit", why:`You have 11. Normally you'd double, but the dealer's ace makes that risky. Just take a card.`}
+                              : dbl("hit", `You have 11 — the best total to double on. No single card can put you over 21, and a 10-value card gives you 21. Double your bet against the dealer's ${dtxt}.`);
+    if(t===10) return (up>=2&&up<=9) ? dbl("hit", `You have 10. Double your bet — you're likely to draw a strong hand, and the dealer's ${dtxt} is beatable.`)
+                                     : {act:"hit", why:`You have 10. It's a good start, but not worth betting extra against the dealer's ${dtxt}. Just take a card.`};
+    if(t===9) return weak&&up>=3 ? dbl("hit", `You have 9 and the dealer's showing a weak card (3 through 6). Double your bet and take advantage.`)
+                                 : {act:"hit", why:`You have 9. Take a card — it's not a strong enough spot to bet extra.`};
+    return {act:"hit", why:`You have ${t}. You can't go over 21 by taking one card, and you're well behind, so always take a card here.`};
   }
 
   const ACT_LABEL={hit:"Hit", stand:"Stand", double:"Double Down", split:"Split"};
@@ -533,7 +548,10 @@
   }
 
   // ---------- Coach ----------
-  let coachOn=true;
+  // "live"  = show the best move (and why) before you play, and highlight the button
+  // "after" = stay quiet until you move, then tell you if you were right and why
+  // "off"   = no help at all
+  let coachMode="live";
   function currentRec(){
     if(!state || state.phase!=="player") return null;
     const h=state.hands[state.active];
@@ -544,25 +562,32 @@
   }
   function renderCoach(rec){
     const rc=$("coach-rec");
-    $("coach").classList.toggle("off", !coachOn);
+    $("coach").classList.toggle("off", coachMode==="off");
     highlightRecButton(rec ? rec.act : null);
-    // Coach switched off — genuinely hide the advice, don't just dim it.
-    if(!coachOn && rec){
-      rc.innerHTML=`<div class="idle"><span class="big">Coach is off.</span>
-        You're playing blind — make the call yourself, then flip the switch back on to check your reasoning.</div>`;
-      return;
-    }
+    // No live hand yet — show the welcome / idle message.
     if(!rec){
-      rc.innerHTML=`<div class="idle"><span class="big">Basic strategy, live.</span>
-        Deal a hand and I'll tell you the mathematically correct move against the dealer's up-card — and exactly why it's right.</div>`;
+      rc.innerHTML=`<div class="idle"><span class="big">Your blackjack coach.</span>
+        Deal a hand and I'll help you decide whether to take a card or stop — and explain why, in plain English.</div>`;
       return;
     }
-    const label=ACT_LABEL[rec.act];
+    // "Off" — genuinely hide the advice, don't just dim it.
+    if(coachMode==="off"){
+      rc.innerHTML=`<div class="idle"><span class="big">Coach is off.</span>
+        You're on your own — make the call yourself. Switch to <b>Before</b> or <b>After</b> whenever you want help back.</div>`;
+      return;
+    }
+    // "After" — stay quiet before the move; the reasoning appears once you play.
+    if(coachMode==="after"){
+      rc.innerHTML=`<div class="idle"><span class="big">Make your call.</span>
+        I won't say a thing yet. Take a card or stop, and I'll tell you right after whether it was the best move — and why.</div>`;
+      return;
+    }
+    // "Before" (live) — show the recommended move and the reasoning up front.
     rc.innerHTML=`
       <div class="rec-card ${rec.act}">
-        <div class="lead">Correct play</div>
-        <div class="move">${label}</div>
-        <div class="sub">vs. dealer's ${state.dealer[0].rank}</div>
+        <div class="lead">Best move</div>
+        <div class="move">${ACT_LABEL[rec.act]}</div>
+        <div class="sub">against the dealer's ${state.dealer[0].rank}</div>
       </div>
       <div class="why">${rec.why}</div>`;
   }
@@ -571,7 +596,7 @@
       b.classList.remove("rec");
       const t=b.querySelector(".tag"); if(t) t.remove();
     });
-    if(!coachOn) return;
+    if(coachMode!=="live") return; // only the "Before" mode gives away the answer on the button
     const btn=document.querySelector(`#action-row .btn[data-act="${act}"]`);
     if(btn && !btn.disabled){
       btn.classList.add("rec");
@@ -682,19 +707,24 @@
   let fbTimer=null;
   function clearFeedback(){ if(fbTimer){clearTimeout(fbTimer); fbTimer=null;} const fb=$("feedback"); if(fb){fb.className="feedback"; fb.innerHTML="";} }
   function gradeDecision(chosen){
-    if(!coachOn) return;
+    if(coachMode==="off") return; // no grading when the coach is off
     const rec=currentRec(); if(!rec) return;
     stats.decisions++;
     const fb=$("feedback"); if(!fb) return;
     const ok = chosen===rec.act;
+    const why = rec.why.replace(/<span class="term"[^>]*>|<\/span>/g,"");
     if(ok){ stats.correct++;
-      fb.innerHTML=`<b>Nice — ${ACT_LABEL[chosen]} is the book play.</b>`;
+      // In "After" mode you didn't see the reason yet, so always explain; in "Before" a short nod is enough.
+      fb.innerHTML = coachMode==="after"
+        ? `<b>Correct — ${ACT_LABEL[chosen]} was the best move.</b> ${why}`
+        : `<b>Nice — ${ACT_LABEL[chosen]} was the best move.</b>`;
     } else {
-      fb.innerHTML=`<b>Book play was ${ACT_LABEL[rec.act]}, not ${ACT_LABEL[chosen]}.</b> ${rec.why.replace(/<span class="term"[^>]*>|<\/span>/g,"")}`;
+      fb.innerHTML=`<b>The better move was ${ACT_LABEL[rec.act]}, not ${ACT_LABEL[chosen]}.</b> ${why}`;
     }
     fb.className="feedback show "+(ok?"right":"wrong");
     if(fbTimer) clearTimeout(fbTimer);
-    fbTimer=setTimeout(()=>{ const f=$("feedback"); if(f) f.className="feedback"; }, ok?2200:5000);
+    const readTime = fb.textContent.length*45 + 1800; // longer explanations stay up longer
+    fbTimer=setTimeout(()=>{ const f=$("feedback"); if(f) f.className="feedback"; }, Math.min(9000, Math.max(2200, readTime)));
     updateStats();
   }
 
@@ -797,8 +827,11 @@
     else if(act==="split") playerSplit();
   });
 
-  $("coach-toggle").addEventListener("change",e=>{
-    coachOn=e.target.checked;
+  $("coach-mode").addEventListener("click",e=>{
+    const b=e.target.closest("[data-mode]"); if(!b) return;
+    coachMode=b.dataset.mode;
+    document.querySelectorAll("#coach-mode .seg-btn").forEach(x=>x.classList.toggle("active", x===b));
+    clearFeedback();
     if(state && state.phase==="player") setActions(); else renderCoach(null);
   });
 
@@ -814,6 +847,15 @@
 
   // boot
   updateStats();
+
+  // Register the service worker so the game works offline once installed to the
+  // home screen. Guarded: does nothing when opened as a local file or where SW
+  // isn't available (e.g. the preview sandbox), and failures are swallowed.
+  if("serviceWorker" in navigator && location.protocol==="https:"){
+    window.addEventListener("load",()=>{
+      navigator.serviceWorker.register("sw.js").catch(()=>{});
+    });
+  }
 })();
 </script>
 </body>
