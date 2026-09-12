@@ -1,0 +1,73 @@
+name: Build iOS app (.ipa)
+
+# Builds an UNSIGNED .ipa on a free cloud Mac. Download it from the run's
+# Artifacts, then install to your iPhone from any computer with Sideloadly or
+# AltStore (they sign it with your free Apple ID). No local Xcode needed.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/blackjack-strategy-guide-9oi3v0"]
+    paths:
+      - "index.html"
+      - "icon-*.png"
+      - "manifest.webmanifest"
+      - "sw.js"
+      - "assets/**"
+      - "capacitor.config.json"
+      - "package.json"
+      - ".github/workflows/build-ios.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Bundle web assets into www/
+        run: npm run copy
+
+      - name: Create the native iOS project
+        run: npx cap add ios
+
+      - name: Generate app icon and splash
+        run: npm run icons
+
+      - name: Sync web assets into the iOS project
+        run: npx cap sync ios
+
+      - name: Build unsigned app
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+
+      - name: Package into an .ipa
+        run: |
+          mkdir -p Payload
+          cp -R "build/Build/Products/Release-iphoneos/App.app" Payload/
+          zip -r ReshuffleRoom.ipa Payload
+          ls -la ReshuffleRoom.ipa
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReshuffleRoom-ipa
+          path: ReshuffleRoom.ipa
+          if-no-files-found: error
