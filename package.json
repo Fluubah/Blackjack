@@ -1,0 +1,20 @@
+{
+  "name": "reshuffle-room",
+  "version": "1.0.0",
+  "description": "The Reshuffle Room — single-deck blackjack trainer with a live coach.",
+  "private": true,
+  "scripts": {
+    "copy": "rm -rf www && mkdir -p www && cp index.html icon-180.png icon-192.png icon-512.png manifest.webmanifest sw.js www/",
+    "sync": "npm run copy && npx cap sync ios",
+    "icons": "npx @capacitor/assets generate --ios",
+    "open": "npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/ios": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^6.2.0"
+  }
+}
