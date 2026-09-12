@@ -1,7 +1,41 @@
 # Putting The Reshuffle Room on your iPhone as a real app (free)
 
 This turns the game into a **native iOS app** using [Capacitor](https://capacitorjs.com/)
-(a thin native shell around the web app). Everything here is **free** — you only need
+(a thin native shell around the web app). Everything here is **free** and needs a free
+Apple ID — no paid Apple Developer account.
+
+There are two routes. Use whichever fits what you've got.
+
+---
+
+## Route 1 — No Mac needed (build in the cloud, install from any computer)
+
+Best if your Mac can't run a current Xcode, or you only have a Windows PC. A free cloud
+Mac (GitHub Actions) builds the app for you; you just install the resulting file.
+
+1. **Download the app file.** Go to the repo's **Actions** tab →
+   **"Build iOS app (.ipa)"** → open the latest green run → under **Artifacts**, download
+   **`ReshuffleRoom-ipa`**. It arrives as a `.zip`; unzip it to get `ReshuffleRoom.ipa`.
+   (No recent build? Open that workflow and click **Run workflow**, or push any change.)
+
+2. **Install [Sideloadly](https://sideloadly.io)** on your Windows PC or Mac (free). It
+   also needs iTunes + iCloud installed (from apple.com, not the Microsoft Store).
+
+3. **Plug your iPhone into the computer.** In Sideloadly: drag `ReshuffleRoom.ipa` onto
+   it, enter your **Apple ID** (a free one is fine), and click **Start**. It signs and
+   installs the app to your phone.
+
+4. **Trust it:** on the iPhone, **Settings → General → VPN & Device Management** → tap
+   your Apple ID → **Trust**. Open the app from your home screen. Done — real native app.
+
+> Prefer [AltStore](https://altstore.io) over Sideloadly if you want the app's 7-day
+> signature to **auto-refresh over WiFi** so it never expires on you.
+
+---
+
+## Route 2 — Build it yourself on a Mac with Xcode
+
+Use this if your Mac *can* run Xcode. Everything here is **free** — you only need
 your Mac, a free Apple ID, and your iPhone. No paid Apple Developer account.
 
 > **The one catch:** apps installed with a free Apple ID **stop opening after 7 days**.
