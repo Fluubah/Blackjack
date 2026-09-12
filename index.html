@@ -248,7 +248,7 @@
   .feedback.right{background:rgba(127,201,139,.12); border:1px solid rgba(127,201,139,.4); color:var(--good)}
   .feedback.wrong{background:rgba(224,122,104,.12); border:1px solid rgba(224,122,104,.4); color:var(--bad)}
   .feedback b{color:inherit}
-  .coach.off .body .rec-card,.coach.off .body .why{opacity:.28; filter:grayscale(.5)}
+  .coach.off .head .icon{opacity:.4}
 
   .idle{color:var(--text-faint); font-size:13.5px; line-height:1.6; text-align:center; padding:8px 4px}
   .idle .big{font-family:"Playfair Display",serif; font-size:19px; color:var(--text-dim); display:block; margin-bottom:6px}
@@ -336,8 +336,11 @@
         <label class="toggle">On <input type="checkbox" id="coach-toggle" checked></label>
       </div>
       <div class="body" id="coach-body">
-        <div class="idle"><span class="big">Basic strategy, live.</span>
-          Deal a hand and I'll tell you the mathematically correct move against the dealer's up-card — and exactly why it's right.</div>
+        <div id="coach-rec">
+          <div class="idle"><span class="big">Basic strategy, live.</span>
+            Deal a hand and I'll tell you the mathematically correct move against the dealer's up-card — and exactly why it's right.</div>
+        </div>
+        <div class="feedback" id="feedback"></div>
       </div>
     </aside>
   </div>
@@ -540,24 +543,28 @@
     return strategy(h.cards, state.dealer[0].rank, {canDouble, canSplit});
   }
   function renderCoach(rec){
-    const body=$("coach-body");
-    const coach=$("coach");
-    coach.classList.toggle("off", !coachOn);
+    const rc=$("coach-rec");
+    $("coach").classList.toggle("off", !coachOn);
+    highlightRecButton(rec ? rec.act : null);
+    // Coach switched off — genuinely hide the advice, don't just dim it.
+    if(!coachOn && rec){
+      rc.innerHTML=`<div class="idle"><span class="big">Coach is off.</span>
+        You're playing blind — make the call yourself, then flip the switch back on to check your reasoning.</div>`;
+      return;
+    }
     if(!rec){
-      body.innerHTML=`<div class="idle"><span class="big">Basic strategy, live.</span>
+      rc.innerHTML=`<div class="idle"><span class="big">Basic strategy, live.</span>
         Deal a hand and I'll tell you the mathematically correct move against the dealer's up-card — and exactly why it's right.</div>`;
       return;
     }
     const label=ACT_LABEL[rec.act];
-    body.innerHTML=`
+    rc.innerHTML=`
       <div class="rec-card ${rec.act}">
         <div class="lead">Correct play</div>
         <div class="move">${label}</div>
         <div class="sub">vs. dealer's ${state.dealer[0].rank}</div>
       </div>
-      <div class="why">${rec.why}</div>
-      <div class="feedback" id="feedback"></div>`;
-    highlightRecButton(rec.act);
+      <div class="why">${rec.why}</div>`;
   }
   function highlightRecButton(act){
     document.querySelectorAll("#action-row .btn").forEach(b=>{
@@ -581,10 +588,22 @@
     const canDouble = h.cards.length===2 && bank>=h.bet && !h.isAceSplit;
     const canSplit = h.cards.length===2 && cardVal(h.cards[0].rank)===cardVal(h.cards[1].rank)
       && bank>=h.bet && state.hands.length<4 && !h.isAceSplit;
+    const dBtn=row.querySelector('[data-act="double"]');
+    const sBtn=row.querySelector('[data-act="split"]');
     row.querySelector('[data-act="hit"]').disabled=h.isAceSplit;
     row.querySelector('[data-act="stand"]').disabled=false;
-    row.querySelector('[data-act="double"]').disabled=!canDouble;
-    row.querySelector('[data-act="split"]').disabled=!canSplit;
+    dBtn.disabled=!canDouble;
+    sBtn.disabled=!canSplit;
+    // Explain why an action is greyed out, so a disabled button doesn't read as broken.
+    const isPair = h.cards.length===2 && cardVal(h.cards[0].rank)===cardVal(h.cards[1].rank);
+    dBtn.title = canDouble ? "Double your bet, take exactly one more card, then stand."
+      : h.isAceSplit ? "Split aces take just one card each."
+      : h.cards.length!==2 ? "Double is only offered on your first two cards."
+      : "Not enough chips — doubling needs a second bet of "+fmt(h.bet)+".";
+    sBtn.title = canSplit ? "Split into two hands, one bet on each."
+      : !isPair ? "Split needs two cards of matching value."
+      : state.hands.length>=4 ? "You can split up to four hands."
+      : "Not enough chips — splitting needs a second bet of "+fmt(h.bet)+".";
     const rec=currentRec();
     renderCoach(rec);
   }
@@ -603,6 +622,7 @@
 
     $("bet-row").hidden=true;
     $("msg").textContent=""; $("msg").className="msg";
+    clearFeedback();
     render(false);
 
     const pv=handValue(state.hands[0].cards), dv=handValue(state.dealer);
@@ -659,17 +679,22 @@
       render(false); setActions(); }
   }
 
+  let fbTimer=null;
+  function clearFeedback(){ if(fbTimer){clearTimeout(fbTimer); fbTimer=null;} const fb=$("feedback"); if(fb){fb.className="feedback"; fb.innerHTML="";} }
   function gradeDecision(chosen){
     if(!coachOn) return;
     const rec=currentRec(); if(!rec) return;
     stats.decisions++;
-    const fbHtml=(ok,txt)=>{const fb=$("feedback"); if(!fb) return;
-      fb.className="feedback show "+(ok?"right":"wrong"); fb.innerHTML=txt;};
-    if(chosen===rec.act){ stats.correct++;
-      fbHtml(true, `<b>Nice — that's the book play.</b>`);
+    const fb=$("feedback"); if(!fb) return;
+    const ok = chosen===rec.act;
+    if(ok){ stats.correct++;
+      fb.innerHTML=`<b>Nice — ${ACT_LABEL[chosen]} is the book play.</b>`;
     } else {
-      fbHtml(false, `<b>Book play was ${ACT_LABEL[rec.act]}.</b> ${rec.why.replace(/<span class="term"[^>]*>|<\/span>/g,"")}`);
+      fb.innerHTML=`<b>Book play was ${ACT_LABEL[rec.act]}, not ${ACT_LABEL[chosen]}.</b> ${rec.why.replace(/<span class="term"[^>]*>|<\/span>/g,"")}`;
     }
+    fb.className="feedback show "+(ok?"right":"wrong");
+    if(fbTimer) clearTimeout(fbTimer);
+    fbTimer=setTimeout(()=>{ const f=$("feedback"); if(f) f.className="feedback"; }, ok?2200:5000);
     updateStats();
   }
 
@@ -743,6 +768,7 @@
     $("msg").className="msg"; $("msg").textContent="Place your bet to deal.";
     $("dealer-cards").innerHTML=""; $("player-hands").innerHTML="";
     $("dealer-tot").hidden=true;
+    clearFeedback();
     renderCoach(null);
     updateStats();
   }
