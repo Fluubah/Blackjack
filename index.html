@@ -280,6 +280,43 @@
   .foot code{background:rgba(8,32,24,.6);padding:1px 6px;border-radius:5px;color:var(--gold-hi);font-size:12px}
   .disc{margin-top:22px;text-align:center;font-size:11.5px;color:var(--text-faint);line-height:1.5}
 
+  /* ---- Strategy chart button + modal ---- */
+  .chart-open{width:100%; margin-top:14px; font-family:"Karla"; font-weight:700; font-size:13px;
+    letter-spacing:.02em; color:var(--gold-hi); background:rgba(8,32,24,.5);
+    border:1px solid var(--line); border-radius:10px; padding:11px; cursor:pointer; transition:background .12s}
+  .chart-open:hover{background:rgba(216,178,92,.12)}
+  .chart-open:focus-visible{outline:2px solid var(--gold-hi); outline-offset:2px}
+  .chart-modal{position:fixed; inset:0; z-index:50; display:grid; place-items:center;
+    background:rgba(6,20,14,.72); backdrop-filter:blur(3px); padding:16px; overflow:auto}
+  .chart-sheet{background:linear-gradient(180deg,#134330,#0d3626); border:1px solid var(--line);
+    border-radius:16px; box-shadow:0 24px 60px rgba(0,0,0,.5); max-width:720px; width:100%;
+    max-height:92vh; display:flex; flex-direction:column; margin:auto}
+  .chart-head{display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:16px 18px; border-bottom:1px solid var(--line)}
+  .chart-head h2{font-family:"Playfair Display",serif; font-size:21px; font-weight:700; margin:0}
+  .chart-close{background:rgba(8,32,24,.6); border:1px solid var(--line); color:var(--text);
+    width:34px; height:34px; border-radius:9px; cursor:pointer; font-size:15px; flex:0 0 auto}
+  .chart-close:hover{color:var(--gold-hi); border-color:var(--gold-dim)}
+  .chart-close:focus-visible{outline:2px solid var(--gold-hi); outline-offset:2px}
+  .chart-legend{display:flex; flex-wrap:wrap; gap:8px 16px; padding:14px 18px 4px}
+  .lg{display:inline-flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; color:var(--text-dim)}
+  .lg .sw{width:18px; height:18px; border-radius:5px; display:grid; place-items:center;
+    font-size:11px; font-weight:800; color:var(--felt-edge)}
+  .chart-body{padding:8px 18px 6px; overflow-y:auto}
+  .chart-block{margin-bottom:16px}
+  .chart-block h3{font-family:"Karla"; font-size:12px; font-weight:700; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--gold); margin:0 0 7px}
+  .chart-scroll{overflow-x:auto}
+  table.chart{border-collapse:separate; border-spacing:3px; width:auto; margin:0}
+  table.chart th, table.chart td{text-align:center; font-variant-numeric:tabular-nums}
+  table.chart th{font-size:11px; font-weight:700; color:var(--text-faint); padding:2px}
+  table.chart th.rowh{text-align:right; padding-right:6px; color:var(--text-dim); white-space:nowrap}
+  table.chart td{width:30px; height:26px; border-radius:5px; font-size:12px; font-weight:800; color:var(--felt-edge)}
+  .a-hit{background:#e0806f} .a-stand{background:#7fc98b} .a-double{background:#e7c66a} .a-split{background:#6ab4cf}
+  table.chart td.cur{outline:3px solid #fff; outline-offset:-1px; box-shadow:0 0 10px rgba(255,255,255,.6)}
+  .chart-note{font-size:12px; color:var(--text-faint); line-height:1.5; padding:6px 18px 16px; margin:0}
+  .chart-corner{font-size:10px; color:var(--text-faint); font-weight:700}
+
   @media(prefers-reduced-motion:reduce){
     *{animation-duration:.001ms !important; animation-iteration-count:1 !important}
   }
@@ -358,6 +395,7 @@
             Deal a hand and I'll help you decide whether to take a card or stop — and explain why, in plain English.</div>
         </div>
         <div class="feedback" id="feedback"></div>
+        <button type="button" class="chart-open" id="chart-open" hidden>📋 See the full strategy chart</button>
       </div>
     </aside>
   </div>
@@ -369,6 +407,18 @@
   </div>
 
   <p class="disc">Play money only. This is a strategy trainer, not a casino — and the house still keeps a small edge even with perfect play.</p>
+</div>
+
+<div class="chart-modal" id="chart-modal" hidden>
+  <div class="chart-sheet" role="dialog" aria-modal="true" aria-label="Full basic strategy chart">
+    <div class="chart-head">
+      <h2>Full strategy chart</h2>
+      <button type="button" class="chart-close" id="chart-close" aria-label="Close chart">✕</button>
+    </div>
+    <div class="chart-legend" id="chart-legend"></div>
+    <div class="chart-body" id="chart-body"></div>
+    <p class="chart-note">Read down the left for <b>your hand</b>, across the top for the <b>card the dealer is showing</b>. If you have a hand right now, its square is outlined in white. <b>D</b> means double if you're allowed to (otherwise take a card, or stand on the ace hands).</p>
+  </div>
 </div>
 
 <script>
@@ -563,6 +613,7 @@
   function renderCoach(rec){
     const rc=$("coach-rec");
     $("coach").classList.toggle("off", coachMode==="off");
+    updateChartButton();
     highlightRecButton(rec ? rec.act : null);
     // No live hand yet — show the welcome / idle message.
     if(!rec){
@@ -603,6 +654,70 @@
       const tag=document.createElement("span"); tag.className="tag"; tag.textContent="Best"; btn.appendChild(tag);
     }
   }
+
+  // ---------- Full strategy chart ----------
+  // The chart is generated from the same strategy() the coach uses, so it can never disagree.
+  const CHART_DEALER=[2,3,4,5,6,7,8,9,10,11]; // 11 = Ace
+  const rankOf=v=> v===11?"A":(v===10?"10":String(v));
+  const actInfo=a=>({hit:{k:"H",cls:"a-hit"}, stand:{k:"S",cls:"a-stand"},
+    double:{k:"D",cls:"a-double"}, split:{k:"P",cls:"a-split"}})[a];
+
+  function updateChartButton(){ const b=$("chart-open"); if(b) b.hidden = coachMode==="off"; }
+
+  function currentChartKey(){
+    if(!state || state.phase!=="player" || coachMode==="off") return {key:null,col:null};
+    const h=state.hands[state.active];
+    const col = state.dealer[0].rank==="A"?11:cardVal(state.dealer[0].rank);
+    let key=null;
+    if(h.cards.length===2 && cardVal(h.cards[0].rank)===cardVal(h.cards[1].rank)){
+      key="pair-"+cardVal(h.cards[0].rank);
+    } else {
+      const v=handValue(h.cards);
+      key = (v.soft && v.total>=13 && v.total<=20) ? "soft-"+v.total : "hard-"+v.total;
+    }
+    return {key, col};
+  }
+  function chartRow(label, key, ranks, opts, cur){
+    let tds="";
+    for(const u of CHART_DEALER){
+      const a=strategy(ranks.map(r=>({rank:r})), rankOf(u), opts).act;
+      const info=actInfo(a);
+      const isCur = cur.key===key && cur.col===u;
+      tds+=`<td class="${info.cls}${isCur?" cur":""}">${info.k}</td>`;
+    }
+    return `<tr><th class="rowh">${label}</th>${tds}</tr>`;
+  }
+  function chartTable(rows){
+    let head=`<tr><th class="chart-corner">you&nbsp;↓</th>`;
+    for(const u of CHART_DEALER) head+=`<th>${rankOf(u)}</th>`;
+    return `<div class="chart-scroll"><table class="chart">${head}</tr>${rows}</table></div>`;
+  }
+  function buildChart(){
+    const cur=currentChartKey();
+    let hard="";
+    for(let t=17;t>=8;t--){
+      const ranks = t>=12 ? ["10", String(t-10)] : [String(t-2),"2"];
+      hard+=chartRow(String(t), "hard-"+t, ranks, {canDouble:true,canSplit:false}, cur);
+    }
+    let soft="";
+    for(let t=20;t>=13;t--){
+      soft+=chartRow(`A,${t-11}`, "soft-"+t, ["A", String(t-11)], {canDouble:true,canSplit:false}, cur);
+    }
+    let pairs="";
+    for(const p of [11,10,9,8,7,6,5,4,3,2]){
+      const r=rankOf(p);
+      pairs+=chartRow(`${r},${r}`, "pair-"+p, [r,r], {canDouble:true,canSplit:true}, cur);
+    }
+    $("chart-legend").innerHTML=[["a-stand","S","Stand"],["a-hit","H","Take a card"],
+      ["a-double","D","Double"],["a-split","P","Split"]]
+      .map(([c,k,l])=>`<span class="lg"><span class="sw ${c}">${k}</span>${l}</span>`).join("");
+    $("chart-body").innerHTML=
+      `<div class="chart-block"><h3>Two cards, no ace — your total</h3>${chartTable(hard)}</div>`+
+      `<div class="chart-block"><h3>Hands with an ace</h3>${chartTable(soft)}</div>`+
+      `<div class="chart-block"><h3>Pairs (two matching cards)</h3>${chartTable(pairs)}</div>`;
+  }
+  function openChart(){ buildChart(); $("chart-modal").hidden=false; }
+  function closeChart(){ $("chart-modal").hidden=true; }
 
   // ---------- Game flow ----------
   function setActions(){
@@ -835,8 +950,15 @@
     if(state && state.phase==="player") setActions(); else renderCoach(null);
   });
 
+  // strategy chart open/close
+  $("chart-open").addEventListener("click", openChart);
+  $("chart-close").addEventListener("click", closeChart);
+  $("chart-modal").addEventListener("click", e=>{ if(e.target===$("chart-modal")) closeChart(); });
+
   // keyboard shortcuts
   document.addEventListener("keydown",e=>{
+    if(e.key==="Escape" && !$("chart-modal").hidden){ closeChart(); return; }
+    if(!$("chart-modal").hidden) return; // don't play the hand while the chart is open
     if(state && state.phase==="player"){
       const map={h:"hit",s:"stand",d:"double",p:"split"};
       const act=map[e.key.toLowerCase()];
@@ -847,6 +969,7 @@
 
   // boot
   updateStats();
+  updateChartButton();
 
   // Register the service worker so the game works offline once installed to the
   // home screen. Guarded: does nothing when opened as a local file or where SW
